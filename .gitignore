@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+.envrc
+
+# Node (for later when we add web/api)
+node_modules/
+npm-debug.log*
+.yarn/cache
+.next/
+dist/
+build/
+
+# Editors
+.vscode/
+.idea/
+
+# Misc
+*.log
+# Data files - do NOT push
+services/ml/data/
+*.csv
