@@ -9,6 +9,9 @@ __pycache__/
 .env
 .venv/
 .envrc
+.env.local
+apps/**/.env*
+services/**/.env*
 
 # Node (for later when we add web/api)
 node_modules/
@@ -17,6 +20,8 @@ npm-debug.log*
 .next/
 dist/
 build/
+out/
+dist/
 
 # Editors
 .vscode/
@@ -27,3 +32,7 @@ build/
 # Data files - do NOT push
 services/ml/data/
 *.csv
+# Data (don’t push local lexicons/CSVs)
+services/ml/data/*.csv
+services/ml/data/*.tsv
+services/ml/data/*.json
