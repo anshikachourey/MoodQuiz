@@ -8,28 +8,20 @@ from typing import Dict, Tuple, List, Optional
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-# =========================
 # Config
-# =========================
 MODEL_ID = os.getenv("EMOTION_MODEL", "j-hartmann/emotion-english-distilroberta-base")
-
-# Path to your GitLab VAD file: columns = term,valence,arousal,dominance
 GITLAB_VAD_PATH = os.getenv(
     "GITLAB_VAD_PATH",
     os.path.join(os.path.dirname(__file__), "data", "vad_gitlab.csv")
 )
 
-# =========================
-# FastAPI app + schema
-# =========================
+# FastAPI
 app = FastAPI(title="MoodQuiz")
 
 class TextIn(BaseModel):
     text: str
 
-# =========================
-# HuggingFace pipeline (lazy)
-# =========================
+# Lazy HuggingFace pipeline 
 _hf_pipeline = None
 
 def get_pipeline():
@@ -45,9 +37,8 @@ def get_pipeline():
         _hf_pipeline = None
     return _hf_pipeline
 
-# =========================
-# Emotion -> Music mapping (fallback / blend component)
-# =========================
+# Emotion to Music mapping (fallback / blend component)
+
 EMOTION_TO_MOOD: Dict[str, Dict[str, float]] = {
     "joy":        {"valence": 0.9,  "energy": 0.7, "focus": 0.4, "danceability": 0.7, "tempo_pref": 0.75},
     "love":       {"valence": 0.85, "energy": 0.6, "focus": 0.5, "danceability": 0.6, "tempo_pref": 0.65},
@@ -72,12 +63,11 @@ def blend_moods(a: Dict[str,float], b: Dict[str,float], wa: float = 0.5) -> Dict
         out[k] = round((a.get(k,0.5)*wa) + (b.get(k,0.5)*wb), 4)
     return out
 
-# =========================
-# VAD (GitLab phrases/terms) loader + matcher
-#   File value range: [-1, 1] → normalize to [0, 1]
+# VAD (GitLab phrases and terms) loader and matcher
+#   File value range is: [-1, 1]. We're gonna normalize it to [0, 1]
 #   Longest-phrase-first n-gram matching (up to 4-grams)
-# =========================
-_word_re = re.compile(r"[a-z']+")  # keep apostrophes (I'm -> i'm)
+
+_word_re = re.compile(r"[a-z']+")  # keep apostrophes
 
 def tokenize(text: str) -> List[str]:
     return [w.lower() for w in _word_re.findall(text.lower())]
@@ -87,7 +77,7 @@ _index_by_first: Dict[str, Dict[int, Dict[Tuple[str,...], Tuple[float,float,floa
 _max_ngram = 4  # up to 4-word phrases
 
 def _norm01(x: float) -> float:
-    # Input in [-1, 1] → output in [0, 1]
+    # Input in [-1, 1] and output in [0, 1]
     return max(0.0, min(1.0, (x + 1.0) / 2.0))
 
 def load_gitlab_vad() -> None:
@@ -102,7 +92,7 @@ def load_gitlab_vad() -> None:
     path = GITLAB_VAD_PATH
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter=',')
-        # Expect headers: term,valence,arousal,dominance
+        # Expected headers: term,valence,arousal,dominance
         for row in reader:
             term_raw = (row.get("term") or "").strip().lower()
             if not term_raw:
@@ -110,7 +100,6 @@ def load_gitlab_vad() -> None:
             toks = tokenize(term_raw)
             if not toks:
                 continue
-
             try:
                 v = float(row["valence"])
                 a = float(row["arousal"])
@@ -142,8 +131,7 @@ def vad_from_text_gitlab(text: str) -> Optional[Tuple[float,float,float]]:
     n = len(toks)
     if n == 0:
         return None
-
-    counts = Counter()   # matched term -> count
+    counts = Counter()   # if matched term, then count
     matches: List[Tuple[str, Tuple[float,float,float]]] = []
 
     i = 0
@@ -181,12 +169,10 @@ def vad_from_text_gitlab(text: str) -> Optional[Tuple[float,float,float]]:
 
     if sum_w == 0:
         return None
-
     return (round(sum_v/sum_w, 4), round(sum_a/sum_w, 4), round(sum_d/sum_w, 4))
 
-# =========================
-# VAD -> Music mood conversion
-# =========================
+# VAD to Music mood conversion
+
 def music_mood_from_vad(v: float, a: float, d: float) -> Dict[str, float]:
     """
     Map psychology VAD to music mood:
@@ -209,9 +195,8 @@ def music_mood_from_vad(v: float, a: float, d: float) -> Dict[str, float]:
         "tempo_pref": round(tempo_pref,4),
     }
 
-# =========================
 # Routes
-# =========================
+
 @app.get("/")
 def root():
     return {"ok": True, "service": "MoodQuiz", "endpoints": ["/ml/infer/text"]}
@@ -222,17 +207,17 @@ async def infer_text(inp: TextIn) -> Dict:
     if not text:
         return {"emotions": {}, "mood": DEFAULT_MOOD, "vad": None, "source":"default"}
 
-    # A) Emotion probabilities from HF model
+    #Emotion probabilities from HF model
     emotions: Dict[str, float] = {}
     nlp = get_pipeline()
     if nlp is not None:
         try:
-            scores = nlp(text)[0]  # list[{"label": "joy", "score": 0.8}, ...]
+            scores = nlp(text)[0]  # list containing dictionaries[{"label": "joy", "score": 0.8}, ...]
             emotions = { s["label"].lower(): float(s["score"]) for s in scores }
         except Exception:
             emotions = {}
 
-    # A -> mood via weighted emotion mapping
+    # Converting the emotional probabilities to mood via weighted emotion mapping
     mood_from_emotions = {**DEFAULT_MOOD}
     if emotions:
         totalsum = sum(emotions.values()) or 1.0
@@ -246,14 +231,14 @@ async def infer_text(inp: TextIn) -> Dict:
         for dim in agg:
             mood_from_emotions[dim] = round(agg[dim] / totalsum, 4)
 
-    # B) VAD from GitLab term/phrase lexicon
+    # Fetching VAD from GitLab term/phrase lexicon
     vad = vad_from_text_gitlab(text)
     mood_from_vad = None
     if vad:
         v, a, d = vad
         mood_from_vad = music_mood_from_vad(v, a, d)
 
-    # C) Blend
+    # Blend the hard coded emotions with the converted VAD database word emotions
     if mood_from_vad and emotions:
         # 40% emotions, 60% VAD — tune 'wa' as you like
         final_mood = blend_moods(mood_from_emotions, mood_from_vad, wa=0.4)
